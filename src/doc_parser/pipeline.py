@@ -71,6 +71,7 @@ class ParseResult:
     source_file: str
     pages: list[PageResult] = field(default_factory=list)
     total_elements: int = 0
+    full_markdown: str = ""  # Full document markdown from SDK (preferred over per-page assembly)
 
     @classmethod
     def from_sdk_result(cls, raw: Any, source_file: str) -> ParseResult:
@@ -79,7 +80,7 @@ class ParseResult:
         The SDK returns a PipelineResult with:
         - json_result: list[list[dict]] — one inner list per page, each dict has
           'index', 'label', 'content', 'bbox_2d'
-        - markdown_result: list[str] — pre-assembled markdown per page
+        - markdown_result: str — full document markdown for the entire document
 
         Args:
             raw: PipelineResult from GlmOcr.parse().
@@ -92,8 +93,9 @@ class ParseResult:
 
         # json_result is a list-of-lists: [page][element]
         raw_pages: list[list[dict[str, Any]]] = getattr(raw, "json_result", [])
-        # markdown_result is a list of pre-assembled markdown strings, one per page
-        raw_markdowns: list[str] = getattr(raw, "markdown_result", [])
+
+        # markdown_result is a single string for the whole document (not per-page)
+        full_markdown: str = getattr(raw, "markdown_result", "") or ""
 
         for page_idx, raw_elements in enumerate(raw_pages):
             page_num = page_idx + 1
@@ -110,16 +112,17 @@ class ParseResult:
                 )
                 elements.append(el)
 
-            # Prefer the SDK's pre-assembled markdown; fall back to our assembler
-            if page_idx < len(raw_markdowns) and raw_markdowns[page_idx]:
-                markdown = raw_markdowns[page_idx]
-            else:
-                markdown = assemble_markdown(elements)
-
+            # Per-page markdown assembled from elements (used for chunking metadata)
+            markdown = assemble_markdown(elements)
             pages.append(PageResult(page_num=page_num, elements=elements, markdown=markdown))
 
         total_elements = sum(len(p.elements) for p in pages)
-        return cls(source_file=source_file, pages=pages, total_elements=total_elements)
+        return cls(
+            source_file=source_file,
+            pages=pages,
+            total_elements=total_elements,
+            full_markdown=full_markdown,
+        )
 
     def save(self, output_dir: Path) -> None:
         """Save this result as Markdown and JSON files.

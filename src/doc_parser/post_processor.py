@@ -80,12 +80,15 @@ def save_to_json(result: Any, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(result.source_file).stem
 
-    # Assemble and save Markdown
-    all_markdown_parts: list[str] = []
-    for page in result.pages:
-        if page.markdown:
-            all_markdown_parts.append(page.markdown)
-    full_markdown = "\n\n".join(all_markdown_parts)
+    # Use the SDK's full document markdown if available (it's higher quality
+    # than our per-element assembler). Fall back to joining per-page markdown.
+    full_markdown = getattr(result, "full_markdown", "") or ""
+    if not full_markdown:
+        all_markdown_parts: list[str] = []
+        for page in result.pages:
+            if page.markdown:
+                all_markdown_parts.append(page.markdown)
+        full_markdown = "\n\n".join(all_markdown_parts)
 
     md_path = output_dir / f"{stem}.md"
     md_path.write_text(full_markdown, encoding="utf-8")
