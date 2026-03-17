@@ -23,10 +23,14 @@ st.set_page_config(
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# Render at exactly the same DPI the SDK uses — bboxes then map 1:1 with no scaling.
-# After drawing boxes we upscale the image 2× purely for screen clarity.
-SDK_DPI = 96
-UPSCALE = 2  # visual upscale after annotation (does NOT affect bbox coordinates)
+# The MaaS API processes at 240 DPI internally but normalises all bbox_2d
+# coordinates to a 0–1000 scale (i.e. value / 1000 = fraction of page dimension).
+# We render the page at any DPI we like and scale bboxes accordingly:
+#   pixel_x = bbox_x * rendered_width  / 1000
+#   pixel_y = bbox_y * rendered_height / 1000
+RENDER_DPI = 150  # DPI for PyMuPDF rendering — purely a display quality choice
+BBOX_SCALE = 1000  # SDK normalises bbox coordinates to this range
+UPSCALE = 1  # no extra upscale needed; RENDER_DPI already gives good quality
 
 # Color map: element label → (R, G, B)
 LABEL_COLORS: dict[str, tuple[int, int, int]] = {
@@ -60,11 +64,11 @@ def get_color(label: str) -> tuple[int, int, int]:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def render_page(pdf_path: Path, page_num: int) -> Image.Image:
-    """Render a PDF page as a PIL Image at SDK_DPI so bbox coords map 1:1."""
+    """Render a PDF page as a PIL Image at RENDER_DPI."""
     doc = fitz.open(str(pdf_path))
     try:
         page = doc.load_page(page_num)
-        mat = fitz.Matrix(SDK_DPI / 72, SDK_DPI / 72)
+        mat = fitz.Matrix(RENDER_DPI / 72, RENDER_DPI / 72)
         pix = page.get_pixmap(matrix=mat)
         return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
     finally:
@@ -72,44 +76,39 @@ def render_page(pdf_path: Path, page_num: int) -> Image.Image:
 
 
 def draw_bboxes(img: Image.Image, elements: list) -> Image.Image:
-    """Draw colored bounding boxes onto the image, then upscale for display.
+    """Draw colored bounding boxes onto the page image.
 
-    Bboxes are drawn at 1:1 (no scaling) because the image was rendered at
-    the same DPI the SDK used. The result is then upscaled for screen clarity.
+    bbox_2d values from the MaaS API are normalised to 0–1000 range, so we
+    scale them to pixel coords using:
+        pixel_x = bbox_x * image_width  / BBOX_SCALE
+        pixel_y = bbox_y * image_height / BBOX_SCALE
     """
     img = img.copy()
     draw = ImageDraw.Draw(img, "RGBA")
+    w, h = img.size
 
     for el in elements:
         if not el.bbox or len(el.bbox) != 4:
             continue
 
-        label = el.label
-        color = get_color(label)
-        x1, y1, x2, y2 = int(el.bbox[0]), int(el.bbox[1]), int(el.bbox[2]), int(el.bbox[3])
+        color = get_color(el.label)
+        x1 = int(el.bbox[0] * w / BBOX_SCALE)
+        y1 = int(el.bbox[1] * h / BBOX_SCALE)
+        x2 = int(el.bbox[2] * w / BBOX_SCALE)
+        y2 = int(el.bbox[3] * h / BBOX_SCALE)
 
-        # Skip degenerate boxes
         if x2 <= x1 or y2 <= y1:
             continue
 
-        # Semi-transparent fill
-        draw.rectangle(
-            [x1, y1, x2, y2],
-            fill=(*color, 35),
-            outline=(*color, 220),
-            width=2,
-        )
+        draw.rectangle([x1, y1, x2, y2], fill=(*color, 35), outline=(*color, 220), width=2)
 
-        # Label badge at top-left of box
-        badge_text = label.replace("_", " ")
+        badge_text = el.label.replace("_", " ")
         tx, ty = x1 + 3, max(y1 - 18, 0)
         draw.rectangle([tx - 2, ty - 1, tx + len(badge_text) * 7 + 2, ty + 14],
                        fill=(*color, 200))
         draw.text((tx, ty), badge_text, fill=(255, 255, 255))
 
-    # Upscale for screen clarity — bboxes already drawn, so no coordinate shift
-    w, h = img.size
-    return img.resize((w * UPSCALE, h * UPSCALE), Image.LANCZOS)
+    return img
 
 
 def build_legend(labels_present: set[str]) -> None:
