@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+from dataclasses import dataclass
+
+from doc_parser.post_processor import ElementLike
 
 logger = logging.getLogger(__name__)
+
+# Token-count heuristic multiplier: word count * 1.3 approximates subword tokenization
+# for typical English text (e.g. BPE tokenizers such as tiktoken cl100k_base).
+_TOKEN_WORD_RATIO: float = 1.3
 
 # Labels that must never be split across chunks
 ATOMIC_LABELS: frozenset[str] = frozenset({"table", "formula", "inline_formula", "algorithm"})
@@ -37,19 +42,17 @@ class Chunk:
     is_atomic: bool
 
 
-class ElementLike(Protocol):
-    """Duck-typing protocol for parsed elements."""
-
-    label: str
-    text: str
-    bbox: list[float]
-    score: float
-    reading_order: int
-
-
 def _estimate_tokens(text: str) -> int:
-    """Estimate token count using word count * 1.3 heuristic."""
-    return int(len(text.split()) * 1.3)
+    """Estimate token count using word count heuristic.
+
+    Args:
+        text: Input text string.
+
+    Returns:
+        Estimated token count (word count * 1.3, rounded down).
+        The 1.3 multiplier accounts for subword tokenization in typical English text.
+    """
+    return int(len(text.split()) * _TOKEN_WORD_RATIO)
 
 
 def _split_text_into_sub_chunks(text: str, max_tokens: int) -> list[str]:
@@ -65,8 +68,8 @@ def _split_text_into_sub_chunks(text: str, max_tokens: int) -> list[str]:
         List of text sub-chunks each within the token limit.
     """
     words = text.split()
-    # Approximate words per chunk: max_tokens / 1.3
-    words_per_chunk = max(1, int(max_tokens / 1.3))
+    # Approximate words per chunk: max_tokens / _TOKEN_WORD_RATIO
+    words_per_chunk = max(1, int(max_tokens / _TOKEN_WORD_RATIO))
 
     sub_chunks = []
     for i in range(0, len(words), words_per_chunk):
@@ -75,7 +78,7 @@ def _split_text_into_sub_chunks(text: str, max_tokens: int) -> list[str]:
 
 
 def structure_aware_chunking(
-    elements: list[Any],
+    elements: list[ElementLike],
     source_file: str,
     page: int,
     max_chunk_tokens: int = 512,
