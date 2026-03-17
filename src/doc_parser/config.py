@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict

@@ -26,7 +26,7 @@ pytestmark = pytest.mark.skipif(
 def sample_image(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Create a simple sample document image for testing."""
     try:
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw
     except ImportError:
         pytest.skip("Pillow not installed")
 
@@ -35,7 +35,9 @@ def sample_image(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     # Draw some simple text to simulate a document page
     draw.text((50, 50), "Sample Document Title", fill=(0, 0, 0))
-    draw.text((50, 120), "Abstract: This is a test document for integration testing.", fill=(0, 0, 0))
+    draw.text(
+        (50, 120), "Abstract: This is a test document for integration testing.", fill=(0, 0, 0)
+    )
     draw.text((50, 200), "1. Introduction", fill=(0, 0, 0))
     draw.text((50, 250), "This section introduces the topic.", fill=(0, 0, 0))
 

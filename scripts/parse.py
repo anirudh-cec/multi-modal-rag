@@ -12,7 +12,6 @@ import argparse
 import json
 import logging
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 # Add src/ to Python path so we can import doc_parser
@@ -22,10 +21,8 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from doc_parser.chunker import Chunk, structure_aware_chunking
-from doc_parser.config import configure_logging, get_settings
 from doc_parser.pipeline import DocumentParser, ParseResult
 from doc_parser.post_processor import save_to_json
-from doc_parser.utils.pdf_utils import validate_input_file
 
 console = Console()
 logger = logging.getLogger(__name__)

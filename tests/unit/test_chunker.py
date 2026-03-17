@@ -5,8 +5,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 
@@ -23,7 +21,8 @@ class TestStructureAwareChunking:
     def test_table_produces_single_atomic_chunk(self):
         """A table element becomes exactly 1 chunk with is_atomic=True."""
         from doc_parser.chunker import structure_aware_chunking
-        elements = [ParsedElement("table", "<table><tr><td>A</td><td>B</td></tr></table>", [0,0,1,1], 0.9, 0)]
+        table_html = "<table><tr><td>A</td><td>B</td></tr></table>"
+        elements = [ParsedElement("table", table_html, [0, 0, 1, 1], 0.9, 0)]
         chunks = structure_aware_chunking(elements, source_file="test.pdf", page=1)
         assert len(chunks) == 1
         assert chunks[0].is_atomic is True
@@ -63,7 +62,9 @@ class TestStructureAwareChunking:
         # ~600 words → should exceed default 512 token limit
         long_text = " ".join(["word"] * 600)
         elements = [ParsedElement("paragraph", long_text, [0,0,1,1], 0.9, 0)]
-        chunks = structure_aware_chunking(elements, source_file="test.pdf", page=1, max_chunk_tokens=512)
+        chunks = structure_aware_chunking(
+            elements, source_file="test.pdf", page=1, max_chunk_tokens=512
+        )
         assert len(chunks) >= 2
 
     def test_chunk_id_format(self):
