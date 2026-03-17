@@ -7,14 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
 from tqdm import tqdm
 
 from doc_parser.config import get_settings
 from doc_parser.post_processor import ElementLike, assemble_markdown, save_to_json
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 try:
     from glmocr import GlmOcr  # type: ignore[import]
