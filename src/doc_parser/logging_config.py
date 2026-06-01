@@ -64,3 +64,4 @@ def setup_logging(level: str = "INFO", json_logs: bool = False) -> None:
 
 print("Logging configured with loguru.")
 print("Logging configured with loguru.")
+print("Logging configured with loguru.")
