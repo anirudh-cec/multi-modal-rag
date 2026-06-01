@@ -177,6 +177,7 @@ All five lines must be non-empty before proceeding.
 ## 4. Security Groups
 
 Two security groups are needed:
+
 - **ALB SG** — faces the internet, accepts port 80
 - **ECS SG** — faces the ALB only, accepts port 8000
 
@@ -276,6 +277,7 @@ aws ecs describe-clusters \
 ## 7. EFS — Persistent Storage
 
 EFS provides two persistent volumes that survive deployments:
+
 - `/qdrant/storage` — Qdrant vector database data
 - `/root/.ollama` — Ollama model weights (downloaded once, reused forever)
 
@@ -530,11 +532,13 @@ aws logs create-log-group \
 ### 12.1 App Task Definition
 
 This task runs three containers:
+
 - **app** — FastAPI backend (port 8000)
 - **qdrant** — vector database sidecar (port 6333, EFS-backed)
 - **ollama** — local LLM / OCR engine (port 11434, EFS-backed, `essential: true`)
 
 > **Key configuration notes:**
+>
 > - `memory: 16384` (16 GB) — required to run Ollama + Qdrant + app concurrently
 > - `PARSER_BACKEND=ollama` — uses local Ollama for PDF parsing, no Z.AI key needed
 > - `QDRANT__STORAGE__SKIP_FILESYNC_ON_OPEN=true` — suppresses Qdrant's NFS warning on EFS (harmless, see Section 18C)
@@ -814,14 +818,14 @@ gh secret set ECS_CLUSTER           --body "doc-parser-cluster"
 gh secret set ECS_SERVICE_APP       --body "doc-parser-app"
 ```
 
-| Secret | Value |
-|--------|-------|
-| `AWS_ACCESS_KEY_ID` | From Phase 9 (`doc-parser-cicd` access key) |
-| `AWS_SECRET_ACCESS_KEY` | From Phase 9 (`doc-parser-cicd` secret key) |
-| `AWS_REGION` | `us-east-1` |
-| `ECR_REGISTRY` | `685057748560.dkr.ecr.us-east-1.amazonaws.com` |
-| `ECS_CLUSTER` | `doc-parser-cluster` |
-| `ECS_SERVICE_APP` | `doc-parser-app` |
+| Secret                    | Value                                            |
+| ------------------------- | ------------------------------------------------ |
+| `AWS_ACCESS_KEY_ID`     | From Phase 9 (`doc-parser-cicd` access key)    |
+| `AWS_SECRET_ACCESS_KEY` | From Phase 9 (`doc-parser-cicd` secret key)    |
+| `AWS_REGION`            | `us-east-1`                                    |
+| `ECR_REGISTRY`          | `685057748560.dkr.ecr.us-east-1.amazonaws.com` |
+| `ECS_CLUSTER`           | `doc-parser-cluster`                           |
+| `ECS_SERVICE_APP`       | `doc-parser-app`                               |
 
 ---
 
@@ -859,6 +863,7 @@ aws logs tail /ecs/doc-parser-app --follow
 **Symptom:** Service shows `runningCount: 0` and `failedTasks > 0`. CI/CD loop never stabilises. The task stops before any container launches.
 
 **Diagnose:**
+
 ```bash
 # Find the stopped task ARN
 aws ecs list-tasks --cluster doc-parser-cluster \
@@ -872,12 +877,14 @@ aws ecs describe-tasks --cluster doc-parser-cluster \
 ```
 
 **What you'll see:**
+
 ```
 stopCode: TaskFailedToStart
 reason: ...not authorized to perform: secretsmanager:GetSecretValue on resource: doc-parser/openai-api-key
 ```
 
 **Fix:** Re-attach the inline policy to the execution role:
+
 ```bash
 aws iam put-role-policy \
   --role-name doc-parser-ecs-task-execution \
@@ -901,6 +908,7 @@ ECS retries automatically after the policy is attached — no redeployment neede
 **Symptom:** Task is RUNNING and app logs show uvicorn started on port 8000, but the ALB target stays `unhealthy — Target.Timeout`. No HTTP requests appear in the app logs at all.
 
 **Diagnose:**
+
 ```bash
 # Step 1 — confirm the target is unhealthy
 aws elbv2 describe-target-health \
@@ -926,6 +934,7 @@ aws ec2 describe-security-groups \
 **What you'll see:** port `8000` is absent from the inbound rules.
 
 **Fix:** Add the missing rule:
+
 ```bash
 ALB_SG=$(aws elbv2 describe-load-balancers --names doc-parser-alb \
   --region us-east-1 --query 'LoadBalancers[0].SecurityGroups[0]' --output text)
@@ -944,6 +953,7 @@ Takes effect immediately — no redeployment needed. The target flips to healthy
 ### C — Qdrant NFS warning on EFS (not a fatal error)
 
 **Symptom:** Qdrant container logs show:
+
 ```
 ERROR qdrant: Filesystem check failed for storage path ./storage.
 Details: NFS may cause data corruption due to inconsistent file locking
@@ -1004,10 +1014,10 @@ echo "Rollback complete."
 
 ## IAM Principal Summary
 
-| Principal | Type | Used By | Permissions |
-|---|---|---|---|
-| `doc-parser-admin` | IAM User | You (local CLI) | AdministratorAccess |
-| `doc-parser-cicd` | IAM User | GitHub Actions | ECR push + ECS deploy only |
+| Principal                         | Type     | Used By            | Permissions                        |
+| --------------------------------- | -------- | ------------------ | ---------------------------------- |
+| `doc-parser-admin`              | IAM User | You (local CLI)    | AdministratorAccess                |
+| `doc-parser-cicd`               | IAM User | GitHub Actions     | ECR push + ECS deploy only         |
 | `doc-parser-ecs-task-execution` | IAM Role | Fargate at runtime | ECR pull, CloudWatch, Secrets, EFS |
 
 ---
@@ -1020,25 +1030,25 @@ The moment the ECS service is running, AWS charges accumulate every hour — eve
 
 ### Fixed charges (running 24 × 7)
 
-| Service | How it charges | ~Monthly cost |
-|---------|---------------|--------------|
-| **ECS Fargate — 2 vCPU** | $0.04048 per vCPU-hour × 2 × 730 h | ~$59 |
-| **ECS Fargate — 16 GB RAM** | $0.004445 per GB-hour × 16 × 730 h | ~$52 |
-| **Application Load Balancer** | $0.0225/hour fixed (hourly charge starts the moment the ALB exists) | ~$16 |
-| **EFS storage (~10 GB)** | $0.30 per GB-month | ~$3 |
-| **CloudWatch Logs** | $0.50 per GB ingested (~2 GB/month) | ~$1 |
-| **Secrets Manager** | $0.40 per secret per month | ~$0.40 |
-| **ECR storage (~2 GB)** | $0.10 per GB-month | ~$0.20 |
-| **Total** | | **~$131/month** |
+| Service                             | How it charges                                                             | ~Monthly cost         |
+| ----------------------------------- | -------------------------------------------------------------------------- | --------------------- |
+| **ECS Fargate — 2 vCPU**     | $0.04048 per vCPU-hour × 2 × 730 h | ~$59                                |                       |
+| **ECS Fargate — 16 GB RAM**  | $0.004445 per GB-hour × 16 × 730 h | ~$52                                |                       |
+| **Application Load Balancer** | $0.0225/hour fixed (hourly charge starts the moment the ALB exists) | ~$16 |                       |
+| **EFS storage (~10 GB)**      | $0.30 per GB-month | ~$3                                                   |                       |
+| **CloudWatch Logs**           | $0.50 per GB ingested (~2 GB/month) | ~$1                                  |                       |
+| **Secrets Manager**           | $0.40 per secret per month | ~$0.40                                        |                       |
+| **ECR storage (~2 GB)**       | $0.10 per GB-month | ~$0.20                                                |                       |
+| **Total**                     |                                                                            | **~$131/month** |
 
 ### Variable charges (usage-dependent)
 
-| Service | Unit cost |
-|---------|----------|
-| OpenAI embeddings | ~$0.13 / million tokens |
+| Service                              | Unit cost                     |
+| ------------------------------------ | ----------------------------- |
+| OpenAI embeddings                    | ~$0.13 / million tokens       |
 | OpenAI GPT-4o (captioning + answers) | ~$2.50 / million input tokens |
-| ALB data processed | ~$0.008 per LCU-hour |
-| Data transfer out to internet | $0.09 per GB |
+| ALB data processed                   | ~$0.008 per LCU-hour          |
+| Data transfer out to internet        | $0.09 per GB                  |
 
 ### Key insight for students
 
@@ -1104,15 +1114,15 @@ echo "ALB deleted. Hourly ALB charge stopped."
 
 ### What you are paying after stopping
 
-| Service | Status | Monthly cost |
-|---------|--------|-------------|
-| Fargate | Stopped (0 tasks) | $0 |
-| ALB | Deleted | $0 |
-| EFS (~10 GB) | Data retained | ~$3 |
-| CloudWatch Logs | No new logs | ~$0 |
-| Secrets Manager | Secret retained | ~$0.40 |
-| ECR | Images retained | ~$0.20 |
-| **Total while paused** | | **~$3.60/month** |
+| Service                      | Status            | Monthly cost           |
+| ---------------------------- | ----------------- | ---------------------- |
+| Fargate                      | Stopped (0 tasks) | $0                     |
+| ALB                          | Deleted           | $0                     |
+| EFS (~10 GB)                 | Data retained     | ~$3                    |
+| CloudWatch Logs              | No new logs       | ~$0                    |
+| Secrets Manager              | Secret retained   | ~$0.40                 |
+| ECR                          | Images retained   | ~$0.20                 |
+| **Total while paused** |                   | **~$3.60/month** |
 
 ---
 
@@ -1460,24 +1470,24 @@ echo "Done. All resources deleted."
 
 ### After full teardown — what still costs money?
 
-| Resource | Cost after teardown |
-|----------|-------------------|
-| CloudWatch Logs (stored data) | $0.03/GB/month — delete log group in Step 6 to avoid this |
-| ECR images | $0 after Step 5 |
-| Secrets Manager | $0 after Step 7 (recovery window still counts if not force-deleted) |
-| EFS | $0 after Step 3 |
-| IAM users / roles | Always free |
-| **Total after full teardown** | **$0** |
+| Resource                            | Cost after teardown                                                 |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| CloudWatch Logs (stored data)       | $0.03/GB/month — delete log group in Step 6 to avoid this          |
+| ECR images                          | $0 after Step 5                                                     |
+| Secrets Manager                     | $0 after Step 7 (recovery window still counts if not force-deleted) |
+| EFS                                 | $0 after Step 3                                                     |
+| IAM users / roles                   | Always free                                                         |
+| **Total after full teardown** | **$0**                                                        |
 
 ---
 
 ## Quick Reference — Stop vs Pause vs Delete
 
-| Goal | Action | Ongoing cost | Data preserved? | Time to restore |
-|------|--------|-------------|----------------|----------------|
-| **Save max money overnight** | Phase 21 (scale to 0 + delete ALB) | ~$3.60/month | Yes | ~5 min |
-| **Pause for a few days** | Phase 21 (scale to 0 only) | ~$19/month | Yes | ~3 min |
-| **Full teardown** | Phase 23 (all steps) | $0 | No | ~2 hours (full redeploy) |
-| **Keep running** | Do nothing | ~$131/month | Yes | N/A |
+| Goal                               | Action                             | Ongoing cost | Data preserved? | Time to restore          |
+| ---------------------------------- | ---------------------------------- | ------------ | --------------- | ------------------------ |
+| **Save max money overnight** | Phase 21 (scale to 0 + delete ALB) | ~$3.60/month | Yes             | ~5 min                   |
+| **Pause for a few days**     | Phase 21 (scale to 0 only)         | ~$19/month   | Yes             | ~3 min                   |
+| **Full teardown**            | Phase 23 (all steps)               | $0           | No              | ~2 hours (full redeploy) |
+| **Keep running**             | Do nothing                         | ~$131/month  | Yes             | N/A                      |
 
 *Last updated: 2026-04-14 | Stack: ECS Fargate + ECR + EFS + ALB + Secrets Manager | Parser: Ollama (glm4v:9b)*
